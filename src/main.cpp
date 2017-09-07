@@ -35,8 +35,8 @@ struct blocks_soa {
 };
 
 int main() {
-    constexpr int num_cols  = 20;
-    constexpr int num_rows  = 30;
+    constexpr int num_cols  = 20; // height 
+    constexpr int num_rows  = 30; // width
     constexpr int cell_size = 30;
 
     try {
@@ -111,7 +111,6 @@ int main() {
                 
                 for (int y = 0; y < num_cols; y++) {
                     for (int x = 0; x < num_rows; x++) {
-                        
                         int index = x + y * num_rows;
                         auto& current_type = blocks_front.type[index]; 
 
@@ -132,7 +131,7 @@ int main() {
 
                             case block_type::WATER:
                                 SDL_SetRenderDrawColor(sdl.m_renderer, 0,102,255,255);
-                                r.h = - (cell_size * blocks_front.liquid[index] / 255.0f); // scale the box depending on the amount of water in the cell
+                                r.h = - cell_size * (blocks_front.liquid[index] / 255.0f); // scale the box depending on the amount of water in the cell
                                 SDL_RenderFillRect(sdl.m_renderer, &r); 
                                 break;
                         } 
@@ -155,41 +154,44 @@ int main() {
                 
                 for (int y = 0; y < num_cols; y++) {
                     for (int x = 0; x < num_rows; x++) {
+
                         int current = x + y * num_rows;
                         int down    = x + (y + 1) * num_rows;
 
                         const auto& current_type = blocks_front.type[current];
-                        const auto& down_type    = blocks_front.type[down];
-
                         std::uint8_t current_liquid = blocks_front.liquid[current];
-                        std::uint8_t down_liquid = blocks_back.liquid[down];
-
+                        
                         if (current_type != block_type::WATER) continue;
 
-                        // if there is no ground at the bottom it will crash because no bounds checks
+                        if (y < num_cols && // check if in bounds
+                            blocks_front.type[down] != block_type::GROUND) { // make sure block bellow isnt ground 
+                            
+                            const auto& down_type    = blocks_front.type[down];
+                            std::uint8_t down_liquid = blocks_front.liquid[down];
 
-                        // flow down
-                        if (down_type != block_type::GROUND) { // block bellow is either air or water
-                            blocks_back.type[down] = block_type::WATER;
-                            blocks_back.liquid[down] = 255;
-                            current_liquid = 0;
+                            if (down_liquid == 0) {
+                                
+                                blocks_back.liquid[down] = 255;
+                                blocks_back.type[down]   = block_type::WATER;            
+                                current_liquid = 0;    
+                            }
+
+
                         }
                         
-                        // check there is still water to work with
+                        // check we have some water to work with if not write to buffer and skip
                         if (current_liquid < min_liquid) {
-                            blocks_front.liquid[current] = 0;
-                            blocks_front.type[current] = block_type::AIR;
+                            current_liquid = 0;
+                            blocks_back.liquid[current] = current_liquid;
+                            blocks_back.type[current]   = block_type::AIR; 
                             continue;
-                        } 
-                            
+                        }
                         
-                        // finally - add the left over liquid into the back buffer 
+                        // we still have water left in this blocks so write it to the buffer 
                         blocks_back.liquid[current] = current_liquid;
-                        blocks_back.type[current] = block_type::WATER;
-                        
+                        blocks_back.type[current]   = block_type::WATER;
                     }
                 }
-
                 
                 // copy back to front
                 blocks_front = blocks_back;
@@ -212,7 +214,7 @@ int main() {
 }
 
                /*         
-                        // #Rule 2 - flow left 
+                    // #Rule 2 - flow left 
                         auto  left = current - 1;
                         auto& left_type = blocks.type_front[left];
                         auto& left_liquid = blocks.liquid[left];
