@@ -49,16 +49,20 @@ int main() {
         int mouse_x = 0, mouse_y = 0; 
         //..
         
-        // fill bottom line with ground
+
+        // fill the bottom and the top with ground blocks
+        
         int y_ground = num_rows - 1; 
+        int y_roof = 0;
         for(int x = 0; x < num_cols; x++) {
-            int index = x + y_ground * num_cols;
-            blocks_front.type[index] = block_type::GROUND;
+            int roof_index = x + y_roof * num_cols;
+            int ground_index = x + y_ground * num_cols;
+            blocks_front.type[roof_index] = block_type::GROUND;
+            blocks_front.type[ground_index] = block_type::GROUND;
 
         }
         
-        // fill right hand side with ground
-        // no need to set the liquid level as it is defaulted to zero
+        // fill the right and left sides with a ground block 
         int x_left = 0;
         int x_right = num_cols - 1;
         for (int y = 0; y < num_rows; y++) {
@@ -98,7 +102,10 @@ int main() {
                                         clicked_block_type = block_type::GROUND;
                                         clicked_block_liquid = 0;
                                         break;
-                                    case block_type::GROUND: [[fallthrough]]; // oooo! some fancy new attribute stuffs
+
+                                    case block_type::GROUND: 
+                                        [[fallthrough]]; // ooo fancy
+
                                     case block_type::WATER: 
                                         clicked_block_type = block_type::AIR;
                                         clicked_block_liquid = 0;
