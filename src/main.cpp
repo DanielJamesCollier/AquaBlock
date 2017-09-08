@@ -16,13 +16,11 @@ enum class block_type : std::uint8_t {
 }; 
 
 
-template<std::size_t rows, std::size_t columns>
+template<std::size_t grid_size>
 struct blocks_soa {
 
-   blocks_soa() 
-   :    type{block_type::AIR}
-   ,    liquid{0}{
-       // empty
+   blocks_soa() {
+       clear();
    }
 
    void clear() {
@@ -30,46 +28,44 @@ struct blocks_soa {
       liquid.fill(0);
    }
    
-   std::array<block_type, rows * columns> type; 
-   std::array<std::uint8_t, rows * columns> liquid;
+   std::array<block_type, grid_size> type; 
+   std::array<std::uint8_t, grid_size> liquid;
 };
 
 int main() {
-    constexpr int num_cols  = 20; // height 
-    constexpr int num_rows  = 30; // width
-    constexpr int cell_size = 30;
+    constexpr int num_cols  = 30; // width 
+    constexpr int num_rows  = 10;  // height 
+    constexpr int grid_size = num_cols * num_rows;
+    constexpr int cell_size = 20;
 
     try {
-        sdl_module sdl("AquaBlock", num_rows * cell_size , num_cols * cell_size);
+        sdl_module sdl("AquaBlock", num_cols * cell_size , num_rows * cell_size);
         
         // data 
-        blocks_soa<num_rows, num_cols> blocks_front;
-        blocks_soa<num_rows, num_cols> blocks_back;
-        std::array<std::uint32_t, num_rows * num_cols> pixels;
+        blocks_soa<grid_size> blocks_front;
+        blocks_soa<grid_size> blocks_back;
+        std::array<std::uint32_t, grid_size> pixels;
         bool running = true; 
         int mouse_x = 0, mouse_y = 0; 
         //..
         
         // fill bottom line with ground
-        int y_ground = num_cols - 1; 
-        for(int x = 0; x < num_rows; x++) {
-            int index = x + y_ground * num_rows;
+        int y_ground = num_rows - 1; 
+        for(int x = 0; x < num_cols; x++) {
+            int index = x + y_ground * num_cols;
             blocks_front.type[index] = block_type::GROUND;
 
-        }
-
-        // fill left hand side with gound
-        int x_left = 0;
-        for (int y = 0; y < num_cols; y++) {
-            int index = x_left + y * num_rows;
-            blocks_front.type[index] = block_type::GROUND;
         }
         
-        // fill right hand side with gound
-        int x_right = num_rows - 1;
-        for (int y = 0; y < num_cols; y++) {
-            int index = x_right + y * num_rows;
-            blocks_front.type[index] = block_type::GROUND;
+        // fill right hand side with ground
+        // no need to set the liquid level as it is defaulted to zero
+        int x_left = 0;
+        int x_right = num_cols - 1;
+        for (int y = 0; y < num_rows; y++) {
+            int left_index = x_left + y * num_cols;
+            int right_index = x_right + y * num_cols;
+            blocks_front.type[left_index] = block_type::GROUND;
+            blocks_front.type[right_index] = block_type::GROUND;
         }
 
         while(running) {
@@ -86,15 +82,30 @@ int main() {
                         break;
                     case SDL_MOUSEBUTTONDOWN:
                         
-                        int x = std::floor(mouse_x / num_rows);
-                        int y = std::floor(mouse_y / num_rows);
-                        int index = x + y * num_rows;
-                        
+                        int x = std::floor((mouse_x / cell_size) + 0.5f);
+                        int y = std::floor((mouse_y / cell_size) + 0.5f); 
+                        int index = x + y * num_cols;
+
                         switch (sdl.m_event.button.button) {
                             case SDL_BUTTON_LEFT: // place ground block
-                                blocks_front.type[index] = block_type::GROUND;
-                                blocks_front.liquid[index] = 0;
-                                break; 
+                            {
+
+                                auto& clicked_block_type   = blocks_front.type[index];
+                                auto& clicked_block_liquid = blocks_front.liquid[index];
+
+                                switch (clicked_block_type) {
+                                    case block_type::AIR:
+                                        clicked_block_type = block_type::GROUND;
+                                        clicked_block_liquid = 0;
+                                        break;
+                                    case block_type::GROUND: [[fallthrough]]; // oooo! some fancy new attribute stuffs
+                                    case block_type::WATER: 
+                                        clicked_block_type = block_type::AIR;
+                                        clicked_block_liquid = 0;
+                                        break;
+                                } 
+                            } break;
+
                             case SDL_BUTTON_RIGHT: // place water block
                                 blocks_front.type[index] = block_type::WATER;
                                 blocks_front.liquid[index] = 255;
@@ -109,9 +120,9 @@ int main() {
                 SDL_SetRenderDrawColor(sdl.m_renderer,76, 76, 76, 255); // background colour
                 sdl.clear_back_buffer();
                 
-                for (int y = 0; y < num_cols; y++) {
-                    for (int x = 0; x < num_rows; x++) {
-                        int index = x + y * num_rows;
+                for (int y = 0; y < num_rows; y++) {
+                    for (int x = 0; x < num_cols; x++) {
+                        int index = x + y * num_cols;
                         auto& current_type = blocks_front.type[index]; 
 
                         SDL_Rect r;
@@ -144,61 +155,50 @@ int main() {
             // update
             {
                 blocks_back.clear();
-                
-                // copy ground blocks from front to back
-                for (std::size_t i = 0; i < blocks_front.type.size(); i++) {
+
+                // copy ground blocks
+                for (auto i = 0; i < blocks_front.type.size(); i++) {
                     if (blocks_front.type[i] == block_type::GROUND) {
                         blocks_back.type[i] = block_type::GROUND;
+                        // no need to copy liquid as they all are reset in blocks_back.clear();
                     }
                 }
-                
-                for (int y = 0; y < num_cols; y++) {
-                    for (int x = 0; x < num_rows; x++) {
 
-                        int current = x + y * num_rows;
-                        int down    = x + (y + 1) * num_rows;
+                // loop through all blocks
+                for (auto y = 0; y < num_rows; y++) {
+                    for (auto x = 0; x < num_cols; x++) {
+                        int current_index  {x + y * num_cols};
 
-                        const auto& current_type = blocks_front.type[current];
-                        std::uint8_t current_liquid = blocks_front.liquid[current];
-                        
+                        auto current_type {blocks_front.type[current_index]};
+
                         if (current_type != block_type::WATER) continue;
+                        
+                        auto current_liquid {blocks_front.liquid[current_index]};
+                        auto down_index {x + (y + 1) * num_cols};
 
-                        if (y < num_cols && // check if in bounds
-                            blocks_front.type[down] != block_type::GROUND) { // make sure block bellow isnt ground 
+                        if (y < num_rows - 1 && // check if we are in bounds [ -1 because we need to check the block bellow for its type]
+                            blocks_front.type[down_index] != block_type::GROUND) {
                             
-                            const auto& down_type    = blocks_front.type[down];
-                            std::uint8_t down_liquid = blocks_front.liquid[down];
+                            auto down_type {blocks_front.type[down_index]};
+                            auto down_liquid {blocks_front.liquid[down_index]};
 
-                            if (down_liquid == 0) {
-                                
-                                blocks_back.liquid[down] = 255;
-                                blocks_back.type[down]   = block_type::WATER;            
-                                current_liquid = 0;    
+                            if (down_liquid < max_liquid) {
+                                blocks_back.type[down_index] = block_type::WATER;
+                                blocks_back.liquid[down_index] = 255;
+                                current_liquid = 0;
                             }
-
-
                         }
-                        
-                        // check we have some water to work with if not write to buffer and skip
-                        if (current_liquid < min_liquid) {
-                            current_liquid = 0;
-                            blocks_back.liquid[current] = current_liquid;
-                            blocks_back.type[current]   = block_type::AIR; 
-                            continue;
-                        }
-                        
-                        // we still have water left in this blocks so write it to the buffer 
-                        blocks_back.liquid[current] = current_liquid;
-                        blocks_back.type[current]   = block_type::WATER;
+
+                        if (current_liquid < min_liquid) continue; 
+
+                        // water is still left over in the current block so add it to the back buffer 
+                        blocks_back.type[current_index] = current_type;
+                        blocks_back.liquid[current_index] = current_liquid; 
                     }
                 }
-                
-                // copy back to front
                 blocks_front = blocks_back;
-            } 
-        
-        
-            SDL_Delay(200);
+            }
+            SDL_Delay(60);
         } 
     } catch (sdl_module_exception const &e) {
         std::cerr << e.what() << std::endl;
@@ -216,7 +216,7 @@ int main() {
                /*         
                     // #Rule 2 - flow left 
                         auto  left = current - 1;
-                        auto& left_type = blocks.type_front[left];
+                        auto& left_type = blocks
                         auto& left_liquid = blocks.liquid[left];
 
                         if (x != 0 && left_type != block_type::GROUND) {
