@@ -29,14 +29,11 @@ struct colour {
     , g{rgb}
     , b{rgb}{}
 
-
     colour(int r, int g, int b)
     :   r{r}
     ,   g{g}
     ,   b{b}
-    {
-
-    }
+    {}
     
     int r;
     int g;
@@ -61,9 +58,8 @@ enum class material : std::uint8_t {
 
 struct block {
    material     type {material::AIR};
-   std::uint8_t mass {0}; 
-   std::uint8_t mass_next {0};
-   std::uint8_t depth {0}; // before and after packed
+   float mass {0}; 
+   float mass_next {0};
 }; 
 
 int main() {
@@ -73,15 +69,11 @@ int main() {
     constexpr int grid_size = num_cols * num_rows;
     constexpr int window_width = num_cols * cell_size;
     constexpr int window_height = num_rows * cell_size;
-    constexpr std::uint8_t max_mass = 255;
-    constexpr std::uint8_t min_mass = 1;
+    constexpr float min_mass = 5;
+    constexpr float max_mass = 255;
     colour min_mass_colour(94, 198, 255);
     colour max_mass_colour(0, 165, 255);
     colour max_water_colour(0, 72, 112);
-
-    std::cout << "block size: " << sizeof(block) * 8 << "bits" << std::endl;
-    std::cout << "grid size: "  << sizeof(block) * grid_size << "bytes" << std::endl;
-
 
     try {
         sdl_module sdl("AquaBlock", window_width, window_height);
@@ -205,28 +197,53 @@ int main() {
                                     }
                                 }
                                 break;
+                            case SDLK_0:
+                                for (auto x = 1; x < num_cols - 1; x++) {
+                                    for (auto y = 1; y < num_rows - 1; y++) {
+                                        auto& block = blocks[x + y * num_cols];
+
+                                        if (block.type == material::WATER) {
+                                            block.type = material::AIR;
+                                            block.mass = 0;
+                                            block.mass_next = 0;
+                                        }
+                                    }
+                                }
+                                break; // SDLK_0
+
+                            case SDLK_1:
+                            {
+                                auto const & block = blocks[mouse_grid_x + mouse_grid_y * num_cols];
+                                
+                                std::cout << "\n---------\n";
+                                std::cout << "material: " << (unsigned)block.type << "\nmass: " << +block.mass << "\nmass_next: " << +block.mass_next << "\n";
+                            } break;
                         }
+                        break; // SDL_KEYDOWN
+                }
+            }
+            
+            block & current_block = blocks[mouse_grid_x + mouse_grid_y * num_cols];
+
+            if (left_down) {
+                switch (current_block.type) {
+                    case material::WATER: 
+                        [[fallthrough]]; 
+                    case material::AIR: 
+                        current_block.type      = material::GROUND;
+                        current_block.mass      = 0;
+                        current_block.mass_next = 0;
                         break;
                 }
             } 
-                        block & current_block = blocks[mouse_grid_x + mouse_grid_y * num_cols];
 
-                        if (left_down) {
-                            switch (current_block.type) {
-                                case material::WATER: 
-                                    [[fallthrough]]; case material::AIR: current_block.type      = material::GROUND;
-                                    current_block.mass      = 0;
-                                    current_block.mass_next = 0;
-                                    break;
-                            }
-                        } 
-
-                        if (right_down) {
-                            current_block.type = material::WATER;
-                            current_block.mass = max_mass;
-                        }
+            if (right_down) {
+                current_block.type = material::WATER;
+                current_block.mass = max_mass;
+                current_block.mass_next = max_mass;
+            }
             
-            // render 
+           // render 
             {
                 SDL_SetRenderDrawColor(sdl.m_renderer,76, 76, 76, 255); // background colour // aka air colour - probabaly should draw air blocks ?!
                 sdl.clear_back_buffer();
@@ -257,14 +274,12 @@ int main() {
                                 auto current_mass = blocks[index].mass;
                                 auto above_mass   = blocks[x + (y - 1) * num_cols].mass;
 
-                                colour mass_colour(lerp_colour(min_mass_colour, max_mass_colour, blocks[index].mass / 255.0f));
+                                colour mass_colour(lerp_colour(min_mass_colour, max_mass_colour, (float)blocks[index].mass / 255.0f));
 
                                 if (!(above_mass != 0 && current_mass !=0)) { // if the block is falling
-                                    r.h = -cell_size * (blocks[index].mass / 255.0f); // scale the box depending on the amount of water in the cell
+                                    r.h = -(float)cell_size * ((float)blocks[index].mass / 255.0f); // scale the box depending on the amount of water in the cell
                                 }
                                 
-                                //mass_colour = lerp_colour(mass_colour, max_water_colour, blocks[index].depth / 255.0f);
-
                                 SDL_SetRenderDrawColor(sdl.m_renderer, mass_colour.r, mass_colour.g, mass_colour.b ,255);
                                 SDL_RenderFillRect(sdl.m_renderer, &r); 
                                 break;
@@ -299,40 +314,23 @@ int main() {
 
                         if (remaining < min_mass) continue;
                        
-                       // if (blocks[current_index].type != material::WATER) continue;         
+                        if (blocks[current_index].type != material::WATER) continue;         
                         
-                        // depth stuff - needs looking at 
-                        {         
-                            auto up_index = x + (y - 1) * num_cols; 
-                        
-                            if (blocks[up_index].type == material::AIR) {
-                                blocks[current_index].depth = 0;     
-                            }
-
-                            if (blocks[down_index].type == material::WATER) {
-                               blocks[down_index].depth += 30;  // todo : clamp this
-                            }
-                        }
                         
                         // downwards flow
                         if (blocks[down_index].type != material::GROUND) {
-
-                            std::uint16_t room = (std::uint16_t)max_mass - (std::uint16_t)blocks[down_index].mass;
-                            std::uint16_t flow = std::min((std::uint16_t)room, (std::uint16_t)remaining);
-
-                            std::uint8_t real_flow;
-
-                            if (flow > 256) {
-                                real_flow = 256;
-                                std::cout << "overflow" << std::endl;
-                            } else {
-                                real_flow = flow;
-                            }
+                            auto room = max_mass - blocks[down_index].mass;
+                            auto flow = std::min(room, remaining);
                             
-                            blocks[current_index].mass_next -= real_flow;
-                            blocks[down_index].mass_next += real_flow ;
-                            remaining -= real_flow;
+                            // if flow is negative constrain to 0
+                            flow = std::max(flow, 0.0f);
 
+                            if (flow > std::min(max_mass, blocks[current_index].mass))
+        						flow = std::min(max_mass, blocks[current_index].mass);
+
+                            blocks[current_index].mass_next -= flow;
+                            blocks[down_index].mass_next += flow ;
+                            remaining -= flow;
                         }   
                         
                         if (remaining < min_mass) continue; 
@@ -342,9 +340,13 @@ int main() {
                         // left flow
                         if (blocks[left_index].type != material::GROUND) {
                             
-                            std::uint8_t room = max_mass - blocks[left_index].mass;
-                            std::uint8_t flow = std::min(room, remaining) / 5;
-                            flow = clamp(flow, (unsigned char)0, remaining);
+                            auto room = max_mass - blocks[left_index].mass;
+                            auto flow = std::min(room, remaining) / 5.0f;
+                            
+                            flow = std::max(flow, 0.0f);
+
+                            if (flow > std::min(max_mass, blocks[current_index].mass))
+        						flow = std::min(max_mass, blocks[current_index].mass);
 
                             blocks[current_index].mass_next -= flow;
                             blocks[left_index].mass_next += flow;
@@ -357,9 +359,14 @@ int main() {
                         
                         // right flow
                         if (blocks[right_index].type != material::GROUND) {
-                            std::uint8_t room = max_mass - blocks[right_index].mass;
-                            std::uint8_t flow = std::min(room, remaining) / 4;
-                            flow = clamp(flow, (unsigned char)0, remaining);
+                            auto room = max_mass - blocks[right_index].mass;
+                            auto flow = std::min(room, remaining) / 4.0f;
+                            
+                            flow = std::max(flow, 0.0f);
+
+                            if (flow > std::min(max_mass, blocks[current_index].mass))
+        						flow = std::min(max_mass, blocks[current_index].mass);
+
 
                             blocks[current_index].mass_next -= flow;
                             blocks[right_index].mass_next += flow;
@@ -376,16 +383,18 @@ int main() {
 
                     if (b.mass < min_mass) {
                         b.mass = 0;
-                        b.depth = 0;
+                        b.mass_next = 0;
                         b.type = material::AIR;
                     } else {
                         b.type = material::WATER;
+                        
+                        // clamp the mass 
+                        if (b.mass > max_mass) {
+                            b.mass = max_mass;
+                        }
                     }
                 }
             }
-
-            SDL_Delay(30);
-                
         } 
     } catch (sdl_module_exception const &e) {
         std::cerr << e.what() << std::endl;
